@@ -224,7 +224,7 @@ def call_data_GWOSC(logger, detectors, start_time, end_time, psd_start_time, psd
         logger.info("Downloading analysis data for ifo {}".format(det))
         ifo = bilby.gw.detector.get_empty_interferometer(det)
         data = TimeSeries.fetch_open_data(det, start_time, end_time, sample_rate=16384)
-        print('1', data)
+        #print('1', data)
 
         # Resampling using lal as that was what was done in bilby_pipe.
         lal_timeseries = data.to_lal()
@@ -236,7 +236,7 @@ def call_data_GWOSC(logger, detectors, start_time, end_time, psd_start_time, psd
             epoch=lal_timeseries.epoch,
             dt=lal_timeseries.deltaT
         )
-        print('2', data)
+        #print('2', data)
         # define some attributes in ifo
         ifo.strain_data.roll_off=roll_off
         ifo.maximum_frequency = maximum_frequency
@@ -245,7 +245,7 @@ def call_data_GWOSC(logger, detectors, start_time, end_time, psd_start_time, psd
 
         logger.info("Downloading psd data for ifo {}".format(det))                  # psd = power spectral density
         psd_data = TimeSeries.fetch_open_data(det, psd_start_time, psd_end_time, sample_rate=16384)
-        print('3', psd_data)
+        #print('3', psd_data)
         # again, we resample the psd_data using lal.
         psd_lal_timeseries = psd_data.to_lal()
         lal.ResampleREAL8TimeSeries(
@@ -261,11 +261,11 @@ def call_data_GWOSC(logger, detectors, start_time, end_time, psd_start_time, psd
         psd = psd_data.psd(                                                         # this function might affect BF
             fftlength=duration, overlap=0.5*duration, window=("tukey", psd_alpha), method="median"
         )
-        print('4', psd)
+        #print('4', psd)
         ifo.power_spectral_density = bilby.gw.detector.PowerSpectralDensity(
             frequency_array=psd.frequencies.value, psd_array=psd.value
         )
-        print('5', ifo)
+        #print('5', ifo)
         ifo_list.append(ifo)
         if plot==True:
             plt.figure()
