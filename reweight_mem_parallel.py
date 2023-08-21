@@ -34,12 +34,11 @@ from scipy.signal import get_window
 from scipy.signal.windows import tukey
 from scipy.special import logsumexp
 
-from waveforms import osc_freq_XPHM, mem_freq_XPHM, osc_freq_XHM, mem_freq_XHM, osc_test2, mem_test2
+from waveforms import osc_freq_XPHM, mem_freq_XPHM, osc_freq_XHM, mem_freq_XHM
 
 
 
-def reweight_mem_parallel(event_name, samples, trigger_time, out_folder, outfile_name_w, waveform_name, 
-                          fmin, detectors, duration, sampling_frequency, data_file=None, n_parallel=2):
+def reweight_mem_parallel(event_name, samples, meta, config, priors, detectors, out_folder, outfile_name_w, data_file=None, n_parallel=2):
 
     """
     A function that calculates the weights to turn a posterior with a proposal distribution into 
@@ -66,7 +65,6 @@ def reweight_mem_parallel(event_name, samples, trigger_time, out_folder, outfile
 
     
     # adds in detectors and the specs for the detectors. 
-
     if data_file is not None:
         print("opening {}".format(data_file))
         with open(data_file, 'rb') as f:
@@ -76,20 +74,29 @@ def reweight_mem_parallel(event_name, samples, trigger_time, out_folder, outfile
         duration = ifo_list.duration
         minimum_frequency = fmin
     else:
-        maximum_frequency = sampling_frequency/2
-        minimum_frequency = fmin
-        roll_off = 0.4
-        duration = duration
-        post_trigger_duration = 2
+        sampling_frequency = meta['sampling_frequency'][0]
+        maximum_frequency = meta['f_final'][0]
+        minimum_frequency = meta['f_low'][0]
+        roll_off = float(config['tukey-roll-off'][0])
+        duration = meta['duration'][0]
+        post_trigger_duration = float(config['post-trigger-duration'][0])
+        trigger_time = float(config['trigger-time'][0])
         end_time = trigger_time + post_trigger_duration
         start_time = end_time - duration
-        psd_duration = 32 * duration
+        psd_duration = 32*duration    # figure out what this is.
         psd_start_time = start_time - psd_duration
         psd_end_time = start_time
-        ifo_list = call_data_GWOSC(logger, detectors, start_time, end_time, psd_start_time, psd_end_time, duration, 
-                        sampling_frequency, roll_off, minimum_frequency, maximum_frequency)
+        
+        ifo_list = call_data_GWOSC(logger, detectors, 
+                                   start_time, end_time, 
+                                   psd_start_time, psd_end_time, 
+                                   duration, sampling_frequency, 
+                                   roll_off, minimum_frequency, maximum_frequency)
 
-
+    
+    
+    waveform_name = meta['approximant'][0]
+    
     if waveform_name == "IMRPhenomXPHM":
         osc_model = osc_freq_XPHM
         mem_model = mem_freq_XPHM
@@ -98,12 +105,25 @@ def reweight_mem_parallel(event_name, samples, trigger_time, out_folder, outfile
         osc_model = osc_freq_XHM
         mem_model = mem_freq_XHM
     
+    
+    waveform_generator_vanilla = bilby.gw.waveform_generator.WaveformGenerator(
+        duration=duration,
+        sampling_frequency=sampling_frequency,
+        frequency_domain_source_model= bilby.gw.source.lal_binary_black_hole,
+        waveform_arguments=dict(duration=duration,
+                                roll_off=roll_off,
+                                minimum_frequency=minimum_frequency,
+                                sampling_frequency=sampling_frequency,
+                               waveform_approximant='IMRPhenomXPHM')
+
+    )
+    
     waveform_generator_osc = bilby.gw.waveform_generator.WaveformGenerator(
         duration=duration,
         sampling_frequency=sampling_frequency,
         frequency_domain_source_model= osc_model,
         waveform_arguments=dict(duration=duration,
-                                roll_off=0.2,
+                                roll_off=roll_off,
                                 minimum_frequency=minimum_frequency,
                                 sampling_frequency=sampling_frequency)
 
@@ -112,22 +132,69 @@ def reweight_mem_parallel(event_name, samples, trigger_time, out_folder, outfile
     waveform_generator_mem = bilby.gw.waveform_generator.WaveformGenerator(
         duration=duration,
         sampling_frequency=sampling_frequency,
-        frequency_domain_source_model= mem_model,
+        frequency_domain_source_model= osc_model,
         waveform_arguments=dict(duration=duration,
-                                roll_off=0.2,
+                                roll_off=roll_off,
                                 minimum_frequency=minimum_frequency,
                                 sampling_frequency=sampling_frequency)
 
     )
+    
+    
+    if meta['time_marginalization'][0]=="True":
+        time_marginalization = True
+        jitter_time = True
+    else:
+        time_marginalization = False
+        jitter_time = False
+    
+    if meta['distance_marginalization'][0]=="True":
+        distance_marginalization = True
+    else:
+        distance_marginalization = False
 
+    
+    priors_dict = dict(
+        time_jitter=bilby.core.prior.Uniform(minimum=-0.00048828125, maximum=0.00048828125, 
+                                             name=None, latex_label=None, 
+                                             unit=None, boundary='periodic'),
+        geocent_time = bilby.core.prior.Uniform(minimum=1126259462.2910001, maximum=1126259462.491, 
+                                                name='geocent_time', latex_label='$t_c$', 
+                                                unit='$s$', boundary=None),
+        luminosity_distance = bilby.core.prior.PowerLaw(alpha=2, minimum=10, 
+                                                        maximum=10000, name='luminosity_distance', 
+                                                        latex_label='$d_L$', unit='Mpc', boundary=None),
+    )
+    
     old_likelihood = bilby.gw.likelihood.GravitationalWaveTransient(
         ifo_list,
-        waveform_generator_osc
+        waveform_generator_osc,
+        time_marginalization = time_marginalization,
+        distance_marginalization = distance_marginalization,
+        jitter_time=jitter_time,
+        priors = priors_dict
+        
+        
     )
-
+    
+    priors_dict2 = dict(time_jitter=bilby.core.prior.Uniform(minimum=-0.00048828125, maximum=0.00048828125, 
+                                             name=None, latex_label=None, 
+                                             unit=None, boundary='periodic'),
+        geocent_time = bilby.core.prior.Uniform(minimum=1126259462.2910001, maximum=1126259462.491, 
+                                                name='geocent_time', latex_label='$t_c$', 
+                                                unit='$s$', boundary=None),
+        luminosity_distance = bilby.core.prior.PowerLaw(alpha=2, minimum=10, 
+                                                        maximum=10000, name='luminosity_distance', 
+                                                        latex_label='$d_L$', unit='Mpc', boundary=None),
+    )
+    
     new_likelihood = bilby.gw.likelihood.GravitationalWaveTransient(
         ifo_list,
-        waveform_generator_mem,
+        waveform_generator_osc,
+        time_marginalization = time_marginalization,
+        distance_marginalization = distance_marginalization,
+        jitter_time=jitter_time,
+        priors = priors_dict2
     )
     
     # Define the proposal likelihood which is stored in the data file.
@@ -151,10 +218,17 @@ def reweight_mem_parallel(event_name, samples, trigger_time, out_folder, outfile
     lnbf_v2 = logsumexp(ln_weights_list) - np.log(len(ln_weights_list))
     print("new log Bayes factor = {}".format(lnbf_v2))
     
+    
     # save into textfile
-    np.savetxt(out_folder+"/{0}_{1}.csv".format(outfile_name_w, waveform_name), weights_list, delimiter=",")
-    np.savetxt(out_folder+"/{0}_{1}_proposal_likelihood.csv".format(outfile_name_w, waveform_name), proposal_likelihood_list, delimiter=",")
-    np.savetxt(out_folder+"/{0}_{1}_target_likelihood.csv".format(outfile_name_w, waveform_name), target_likelihood_list, delimiter=",")
+    np.savetxt(out_folder+"/{0}_{1}.csv".format(outfile_name_w, waveform_name), 
+               weights_list, 
+               delimiter=",")
+    np.savetxt(out_folder+"/{0}_{1}_proposal_likelihood.csv".format(outfile_name_w, waveform_name), 
+               proposal_likelihood_list, 
+               delimiter=",")
+    np.savetxt(out_folder+"/{0}_{1}_target_likelihood.csv".format(outfile_name_w, waveform_name), 
+               target_likelihood_list, 
+               delimiter=",")
 
     
     return weights_list, bf_v2
@@ -168,12 +242,21 @@ def reweighting(data, old_likelihood, new_likelihood):
     proposal_likelihood_list = []
     target_likelihood_list = []
     length = data.shape[0]
-    for i in range(length):
-
-        old_likelihood.parameters = data.iloc[i].to_dict()
+    for i in range(1):
+        use_stored_likelihood=True
+        
+        if i % 1000 == 0:
+            print("reweighted {} samples".format(i+1))
+        
+        if use_stored_likelihood:
+            old_likelihood_values = data['log_likelihood'].iloc[i]
+        else:
+            old_likelihood.parameters = data.iloc[i].to_dict()
+            old_likelihood_values = old_likelihood.log_likelihood_ratio()
+        
         new_likelihood.parameters = data.iloc[i].to_dict()
-        old_likelihood_values = old_likelihood.log_likelihood_ratio()
         new_likelihood_values = new_likelihood.log_likelihood_ratio()
+        
         ln_weights = new_likelihood_values-old_likelihood_values
         weights = np.exp(new_likelihood_values-old_likelihood_values)
         weights_sq = np.square(weights)
@@ -191,8 +274,8 @@ def reweight_parallel(samples, old_likelihood, new_likelihood, n_parallel=2):
     print("activate multiprocessing")
     p = mp.Pool(n_parallel)
 
-    data = pd.DataFrame.from_dict(samples)
-
+    #data = pd.DataFrame.from_dict(samples)
+    data=samples
     new_data = copy.deepcopy(data)
   
     posteriors = np.array_split(new_data, n_parallel)

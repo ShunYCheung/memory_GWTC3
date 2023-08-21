@@ -30,7 +30,7 @@ def nfft_and_time_shift(kwargs, series, shift, waveform):
 
 
 def get_alpha(roll_off, duration):
-    return roll_off/duration
+    return 2*roll_off/duration
 
 
 def apply_time_shift_frequency_domain(waveform, frequency_array, duration, shift):
