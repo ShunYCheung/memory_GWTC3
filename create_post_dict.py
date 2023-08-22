@@ -10,6 +10,9 @@ def create_post_dict(file_name):
     meta = data['C01:IMRPhenomXPHM']['meta_data']['meta_data']
     config = data['C01:IMRPhenomXPHM']['config_file']['config']
     priors = data['C01:IMRPhenomXPHM']['priors']['analytic']
+    psds = data['C01:IMRPhenomXPHM']['psds']
+    calibration = data['C01:IMRPhenomXPHM']['calibration_envelope']
+    #calibration = data['C01:IMRPhenomXPHM']['priors']['calibration']
     
 
-    return posterior_samples, meta, config, priors
+    return posterior_samples, meta, config, priors, psds, calibration
