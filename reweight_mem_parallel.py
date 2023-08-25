@@ -64,11 +64,12 @@ def reweight_mem_parallel(event_name, samples, meta, config, priors, detectors, 
         duration = meta['duration'][0]
         post_trigger_duration = float(config['post-trigger-duration'][0])
         trigger_time = float(config['trigger-time'][0])
-        end_time = trigger_time + post_trigger_duration
-        start_time = end_time - duration
-        psd_duration = 32*duration    # deprecated
-        psd_start_time = start_time - psd_duration
-        psd_end_time = start_time
+        
+        end_time = trigger_time + post_trigger_duration # deprecated
+        start_time = end_time - duration # deprecated
+        psd_duration = 32*duration # deprecated
+        psd_start_time = start_time - psd_duration # deprecated
+        psd_end_time = start_time # deprecated
         
         ifo_list = call_data_GWOSC(logger, config, 
                                    calibration, samples, detectors,
@@ -91,7 +92,7 @@ def reweight_mem_parallel(event_name, samples, meta, config, priors, detectors, 
         mem_model = mem_freq_XHM
     
     
-    # test if vanilla = osc
+    # test if bilby oscillatory waveform = gwmemory oscillatory waveform.
     waveform_generator_vanilla = bilby.gw.waveform_generator.WaveformGenerator(
         duration=duration,
         sampling_frequency=sampling_frequency,
@@ -104,10 +105,15 @@ def reweight_mem_parallel(event_name, samples, meta, config, priors, detectors, 
                                 sampling_frequency=sampling_frequency,
                                 reference_frequency=reference_frequency,
                                 waveform_approximant=waveform_name,
-                                catch_waveform_errors=True)
+                                catch_waveform_errors=True,
+                               pn_spin_order = -1,
+                               pn_phase_order = -1,
+                               pn_tidal_order= -1,
+                               pn_amplitude_order = 1,)
 
     )
     
+    # define oscillatory model using gwmemory.
     waveform_generator_osc = bilby.gw.waveform_generator.WaveformGenerator(
         duration=duration,
         sampling_frequency=sampling_frequency,
@@ -118,7 +124,8 @@ def reweight_mem_parallel(event_name, samples, meta, config, priors, detectors, 
                                 sampling_frequency=sampling_frequency)
 
     )
-
+    
+    # define oscillatory + memory model using gwmemory.
     waveform_generator_mem = bilby.gw.waveform_generator.WaveformGenerator(
         duration=duration,
         sampling_frequency=sampling_frequency,
@@ -155,8 +162,8 @@ def reweight_mem_parallel(event_name, samples, meta, config, priors, detectors, 
         calibration_marginalization = False
 
     
-    priors2 = copy.copy(priors) # for some reason the priors change after putting it into the likelihood. 
-    # Hence, defining new ones for the seocnd likelihood.
+    priors2 = copy.copy(priors) # for some reason the priors change after putting it into the likelihood object. 
+    # Hence, defining new ones for the seocnd likelihood object.
     
     old_likelihood = bilby.gw.likelihood.GravitationalWaveTransient(
         ifo_list,
@@ -169,7 +176,6 @@ def reweight_mem_parallel(event_name, samples, meta, config, priors, detectors, 
         priors = priors,
         reference_frame = config['reference-frame'][0],
         calibration_lookup_table = calibration_lookup_table,
-        #number_of_response_curves = 300,
     )
     
     file_paths={"H1":"/home/daniel.williams/events/O3/event_repos/GW150914/C01_offline/calibration/H1.dat",
@@ -207,7 +213,6 @@ def reweight_mem_parallel(event_name, samples, meta, config, priors, detectors, 
         priors = priors2,
         reference_frame = config['reference-frame'][0],
         calibration_lookup_table = calibration_lookup_table,
-        #number_of_response_curves = 300,
     )
     
     # Define the proposal likelihood which is stored in the data file.
@@ -232,7 +237,7 @@ def reweight_mem_parallel(event_name, samples, meta, config, priors, detectors, 
     print("new log Bayes factor = {}".format(lnbf_v2))
     
     
-    # save into textfile
+    # save weights, proposal and target likelihoods into a .txt file
     np.savetxt(out_folder+"/{0}_{1}.csv".format(outfile_name_w, waveform_name), 
                weights_list, 
                delimiter=",")
@@ -249,6 +254,8 @@ def reweight_mem_parallel(event_name, samples, meta, config, priors, detectors, 
 
 
 def reweighting(data, old_likelihood, new_likelihood):
+    logger = bilby.core.utils.logger
+    
     ln_weights_list=[]
     weights_list = []
     weights_sq_list = []
@@ -260,18 +267,18 @@ def reweighting(data, old_likelihood, new_likelihood):
         
         if i % 1000 == 0:
             print("reweighted {0} samples out of {1}".format(i+1, length))
+            logger.info("{:0.2f}".format(i / length * 100) + "%")
         
         if use_stored_likelihood:
             old_likelihood_values = data['log_likelihood'].iloc[i]
-            #print(data['log_likelihood'].iloc[i])
-            #print(data.log_likelihood.iloc[i])
+            
         else:
             old_likelihood.parameters = data.iloc[i].to_dict()
             old_likelihood_values = old_likelihood.log_likelihood_ratio()
     
         new_likelihood.parameters = data.iloc[i].to_dict()
         new_likelihood_values = new_likelihood.log_likelihood_ratio()
-        print("ln_noise_evidence",new_likelihood.noise_log_likelihood())
+        print("ln_noise_evidence = ",new_likelihood.noise_log_likelihood())
         
         ln_weights = new_likelihood_values-old_likelihood_values
         weights = np.exp(new_likelihood_values-old_likelihood_values)
@@ -424,6 +431,7 @@ def call_data_GWOSC(logger, config, calibration, samples, detectors, start_time,
             """
         
         ifo_list.append(ifo)
+        
         if plot==True:
             plt.figure()
             plt.loglog(ifo.frequency_array, ifo.power_spectral_density_array)
