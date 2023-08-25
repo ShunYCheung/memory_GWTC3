@@ -2,12 +2,9 @@
 Code for a function "reweight" to calculate the weights to turn a proposal posterior into a target posterior.
 Also calculates the Bayes factor between no memory and memory hypothesis. 
 
-To use this code, change the filepath to whichever data file with the posteriors 
-you wish to reweight.
-
 Author: Shun Yin Cheung
-
 """
+
 import sys
 
 import h5py
@@ -38,27 +35,12 @@ from waveforms import osc_freq_XPHM, mem_freq_XPHM, osc_freq_XHM, mem_freq_XHM
 
 
 
-def reweight_mem_parallel(event_name, samples, meta, config, priors, calibration, detectors, out_folder, outfile_name_w, data_file=None, psds = None, n_parallel=2):
+def reweight_mem_parallel(event_name, samples, meta, config, priors, detectors, out_folder, outfile_name_w, data_file=None, psds = None, calibration=None, n_parallel=2):
 
     """
     A function that calculates the weights to turn a posterior with a proposal distribution into 
     the posterior of the target distribution. The weights are saved into a .csv file 
     at the end of the code.
-    
-    Parameters
-    ==========
-    samples: the posterior samples from the proposal distribution, array
-    trigger_time: the trigger time of the event, int
-    outfile_name_w: the name of the outfile containing the weights, string
-    outfile_name_l: the name of the oufile containing the target likelihood, string
-    sur_waveform: the name of the surrogate waveform, string
-    fmin: the minimum frequency used in the surrogate waveform, float
-    detector: the name of the detector for the analysis, list
-
-    Returns
-    ==========
-    weights: the weights to transform the posterior of the proposal to that of the target, array
-    bf: the Bayes factor between the target and the posterior, float
     """
 
     logger = bilby.core.utils.logger
@@ -75,8 +57,9 @@ def reweight_mem_parallel(event_name, samples, meta, config, priors, calibration
         minimum_frequency = fmin
     else:
         sampling_frequency = meta['sampling_frequency'][0]
-        maximum_frequency = meta['f_final'][0]
+        maximum_frequency = 896 #meta['f_final'][0]
         minimum_frequency = meta['f_low'][0]
+        reference_frequency = float(config['reference-frequency'][0])
         roll_off = float(config['tukey-roll-off'][0])
         duration = meta['duration'][0]
         post_trigger_duration = float(config['post-trigger-duration'][0])
@@ -87,7 +70,8 @@ def reweight_mem_parallel(event_name, samples, meta, config, priors, calibration
         psd_start_time = start_time - psd_duration
         psd_end_time = start_time
         
-        ifo_list = call_data_GWOSC(logger, detectors, 
+        ifo_list = call_data_GWOSC(logger, config, 
+                                   calibration, samples, detectors,
                                    start_time, end_time, 
                                    psd_start_time, psd_end_time, 
                                    duration, sampling_frequency, 
@@ -97,7 +81,7 @@ def reweight_mem_parallel(event_name, samples, meta, config, priors, calibration
     
     
     waveform_name = meta['approximant'][0]
-    
+    print(ifo_list)
     if waveform_name == "IMRPhenomXPHM":
         osc_model = osc_freq_XPHM
         mem_model = mem_freq_XPHM
@@ -106,16 +90,21 @@ def reweight_mem_parallel(event_name, samples, meta, config, priors, calibration
         osc_model = osc_freq_XHM
         mem_model = mem_freq_XHM
     
+    
     # test if vanilla = osc
     waveform_generator_vanilla = bilby.gw.waveform_generator.WaveformGenerator(
         duration=duration,
         sampling_frequency=sampling_frequency,
         frequency_domain_source_model= bilby.gw.source.lal_binary_black_hole,
+        parameter_conversion = bilby.gw.conversion.convert_to_lal_binary_black_hole_parameters,
         waveform_arguments=dict(duration=duration,
                                 roll_off=roll_off,
                                 minimum_frequency=minimum_frequency,
+                                maximum_frequency=maximum_frequency,
                                 sampling_frequency=sampling_frequency,
-                                waveform_approximant=waveform_name)
+                                reference_frequency=reference_frequency,
+                                waveform_approximant=waveform_name,
+                                catch_waveform_errors=True)
 
     )
     
@@ -143,6 +132,7 @@ def reweight_mem_parallel(event_name, samples, meta, config, priors, calibration
     
     
     if meta['time_marginalization'][0]=="True":
+        print('time marginalisation on')
         time_marginalization = True
         jitter_time = True
     else:
@@ -150,64 +140,74 @@ def reweight_mem_parallel(event_name, samples, meta, config, priors, calibration
         jitter_time = False
     
     if meta['distance_marginalization'][0]=="True":
+        print('distance marginalisation on')
         distance_marginalization = True
     else:
         distance_marginalization = False
-    if config['calibration-model'][0] is not None:
+    if calibration is not None:
+        print("calibration marginalisation on")
         calibration_marginalization = True
         calibration_lookup_table = calibration
         #calibration_lookup_table = {"H1":"/home/daniel.williams/events/O3/event_repos/GW150914/C01_offline/calibration/H1.dat",
-        #                            "L1":"/home/daniel.williams/events/O3/event_repos/GW150914/C01_offline/calibration/L1.dat", #}
-        print(calibration_lookup_table)
+        #                            "L1":"/home/daniel.williams/events/O3/event_repos/GW150914/C01_offline/calibration/L1.dat", }
+        #print(np.shape(calibration_lookup_table['H1']))
     else:
         calibration_marginalization = False
 
     
-    priors_dict = dict(
-        time_jitter=bilby.core.prior.Uniform(minimum=-0.00048828125, maximum=0.00048828125, 
-                                             name=None, latex_label=None, 
-                                             unit=None, boundary='periodic'),
-        geocent_time = bilby.core.prior.Uniform(minimum=1126259462.2910001, maximum=1126259462.491, 
-                                                name='geocent_time', latex_label='$t_c$', 
-                                                unit='$s$', boundary=None),
-        luminosity_distance = bilby.core.prior.PowerLaw(alpha=2, minimum=10, 
-                                                        maximum=10000, name='luminosity_distance', 
-                                                        latex_label='$d_L$', unit='Mpc', boundary=None),
-    )
+    priors2 = copy.copy(priors) # for some reason the priors change after putting it into the likelihood. 
+    # Hence, defining new ones for the seocnd likelihood.
     
     old_likelihood = bilby.gw.likelihood.GravitationalWaveTransient(
         ifo_list,
         waveform_generator_osc,
         time_marginalization = time_marginalization,
         distance_marginalization = distance_marginalization,
-        #calibration_marginalization = calibration_marginalization,
+        distance_marginalization_lookup_table = "'TD.npz'.npz",
+        calibration_marginalization = calibration_marginalization,
         jitter_time=jitter_time,
-        priors = priors_dict,
-        #calibration_lookup_table = calibration_lookup_table,
-        
-        
+        priors = priors,
+        reference_frame = config['reference-frame'][0],
+        calibration_lookup_table = calibration_lookup_table,
+        #number_of_response_curves = 300,
     )
     
-    priors_dict2 = dict(time_jitter=bilby.core.prior.Uniform(minimum=-0.00048828125, maximum=0.00048828125, 
-                                             name=None, latex_label=None, 
-                                             unit=None, boundary='periodic'),
-        geocent_time = bilby.core.prior.Uniform(minimum=1126259462.2910001, maximum=1126259462.491, 
-                                                name='geocent_time', latex_label='$t_c$', 
-                                                unit='$s$', boundary=None),
-        luminosity_distance = bilby.core.prior.PowerLaw(alpha=2, minimum=10, 
-                                                        maximum=10000, name='luminosity_distance', 
-                                                        latex_label='$d_L$', unit='Mpc', boundary=None),
-    )
+    file_paths={"H1":"/home/daniel.williams/events/O3/event_repos/GW150914/C01_offline/calibration/H1.dat",
+                                   "L1":"/home/daniel.williams/events/O3/event_repos/GW150914/C01_offline/calibration/L1.dat", }
+    
+    # for some reason the calibration model change to Recalibrate after using it in old lieklihodo hence, defining a new one. 
+    if calibration is not None:
+        for i in range(len(detectors)):
+            """
+            ifo_list[i].calibration_model = bilby.gw.calibration.Precomputed(
+                    f"{ifo_list[i].name}",
+                    calibration[f"{ifo_list[i].name}"],
+                    frequency_array=ifo_list[i].frequency_array[ifo_list[i].frequency_mask],
+                    parameters= samples,
+                )
+            """
+            ifo_list[i].calibration_model = bilby.gw.calibration.Precomputed.from_envelope_file(
+                    file_paths[f"{ifo_list[i].name}"],
+                    frequency_array=ifo_list[i].frequency_array[ifo_list[i].frequency_mask],
+                    n_nodes=int(config['spline-calibration-nodes'][0]),
+                    label=ifo_list[i].name,
+                    n_curves=1000,
+                )
+            
+
     
     new_likelihood = bilby.gw.likelihood.GravitationalWaveTransient(
         ifo_list,
-        waveform_generator_mem,
+        waveform_generator_vanilla,
         time_marginalization = time_marginalization,
         distance_marginalization = distance_marginalization,
-        #calibration_marginalization = calibration_marginalization,
+        distance_marginalization_lookup_table = "'TD.npz'.npz",
+        calibration_marginalization = calibration_marginalization,
         jitter_time=jitter_time,
-        priors = priors_dict2,
-        #calibration_lookup_table = calibration_lookup_table,
+        priors = priors2,
+        reference_frame = config['reference-frame'][0],
+        calibration_lookup_table = calibration_lookup_table,
+        #number_of_response_curves = 300,
     )
     
     # Define the proposal likelihood which is stored in the data file.
@@ -256,19 +256,22 @@ def reweighting(data, old_likelihood, new_likelihood):
     target_likelihood_list = []
     length = data.shape[0]
     for i in range(1):
-        use_stored_likelihood=False
+        use_stored_likelihood=True
         
         if i % 1000 == 0:
-            print("reweighted {} samples".format(i+1))
+            print("reweighted {0} samples out of {1}".format(i+1, length))
         
         if use_stored_likelihood:
             old_likelihood_values = data['log_likelihood'].iloc[i]
+            #print(data['log_likelihood'].iloc[i])
+            #print(data.log_likelihood.iloc[i])
         else:
             old_likelihood.parameters = data.iloc[i].to_dict()
             old_likelihood_values = old_likelihood.log_likelihood_ratio()
-        
+    
         new_likelihood.parameters = data.iloc[i].to_dict()
         new_likelihood_values = new_likelihood.log_likelihood_ratio()
+        print("ln_noise_evidence",new_likelihood.noise_log_likelihood())
         
         ln_weights = new_likelihood_values-old_likelihood_values
         weights = np.exp(new_likelihood_values-old_likelihood_values)
@@ -287,7 +290,6 @@ def reweight_parallel(samples, old_likelihood, new_likelihood, n_parallel=2):
     print("activate multiprocessing")
     p = mp.Pool(n_parallel)
 
-    #data = pd.DataFrame.from_dict(samples)
     data=samples
     new_data = copy.deepcopy(data)
   
@@ -312,16 +314,34 @@ def reweight_parallel(samples, old_likelihood, new_likelihood, n_parallel=2):
 
 
 
-def call_data_GWOSC(logger, detectors, start_time, end_time, psd_start_time, psd_end_time, duration, 
-                    sampling_frequency, roll_off, minimum_frequency, maximum_frequency, psds_array=None, plot=False):
+def call_data_GWOSC(logger, config, calibration, samples, detectors, start_time, end_time, psd_start_time, psd_end_time, duration, sampling_frequency, roll_off, minimum_frequency, maximum_frequency, psds_array=None, plot=False):
     ifo_list = bilby.gw.detector.InterferometerList([])
     
     # define interferometer objects
     for det in detectors:   
         logger.info("Downloading analysis data for ifo {}".format(det))
         ifo = bilby.gw.detector.get_empty_interferometer(det)
-        data = TimeSeries.fetch_open_data(det, start_time, end_time, sample_rate=16384) # data from GWOSC
+        
+        channel_type = 'DCS-CALIB_STRAIN_C02'
+        
+        channel = f"{det}:{channel_type}"
+        
+        kwargs = dict(
+            start=start_time,
+            end=end_time,
+            verbose=False,
+            allow_tape=True,
+        )
 
+        type_kwargs = dict(
+            dtype="float64",
+            subok=True,
+            copy=False,
+        )
+        
+        data = gwpy.timeseries.TimeSeries.get(channel, **kwargs).astype(
+                **type_kwargs)
+    
         # Resampling timeseries to sampling_frequency using lal.
         lal_timeseries = data.to_lal()
         lal.ResampleREAL8TimeSeries(
@@ -364,8 +384,9 @@ def call_data_GWOSC(logger, detectors, start_time, end_time, psd_start_time, psd
                 dt=psd_lal_timeseries.deltaT
             )
 
-            psd_alpha = 2 * roll_off / duration                                         # psd_alpha might affect BF
-            psd = psd_data.psd(                                                         # this function might affect BF
+            psd_alpha = 2 * roll_off / duration  
+            
+            psd = psd_data.psd(        
                 fftlength=duration, overlap=0.5*duration, window=("tukey", psd_alpha), method="median"
             )
 
@@ -373,7 +394,34 @@ def call_data_GWOSC(logger, detectors, start_time, end_time, psd_start_time, psd
                 frequency_array=psd.frequencies.value, psd_array=psd.value
             )
         
-        
+        """
+        ifo.calibration_model = bilby.gw.calibration.CubicSpline(prefix=f"recalib_{ifo.name}_",
+                minimum_frequency=ifo.minimum_frequency,
+                maximum_frequency=ifo.maximum_frequency,
+                n_points=int(config['spline-calibration-nodes'][0]))
+        """
+        if calibration is not None:
+            print(f'{det}: Using pre-computed calibration model')
+            model = bilby.gw.calibration.Precomputed
+            det = ifo.name
+            file_paths={"H1":"/home/daniel.williams/events/O3/event_repos/GW150914/C01_offline/calibration/H1.dat",
+                        "L1":"/home/daniel.williams/events/O3/event_repos/GW150914/C01_offline/calibration/L1.dat", }
+            
+            ifo.calibration_model = model.from_envelope_file(
+                file_paths[det],
+                frequency_array=ifo.frequency_array[ifo.frequency_mask],
+                n_nodes=int(config['spline-calibration-nodes'][0]),
+                label=det,
+                n_curves=1000,
+            )
+            """
+            ifo.calibration_model = model(
+                f"{det}",
+                calibration[det],
+                frequency_array=ifo.frequency_array[ifo.frequency_mask],
+                parameters= samples,
+            )
+            """
         
         ifo_list.append(ifo)
         if plot==True:
