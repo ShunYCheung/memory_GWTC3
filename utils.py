@@ -4,7 +4,6 @@ Script for bunch of useful functions for reweighting code.
 
 
 import bilby
-import gwmemory
 import copy
 
 import numpy as np

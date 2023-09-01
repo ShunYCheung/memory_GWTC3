@@ -2,14 +2,16 @@ import h5py
 from bilby.core.utils.io import recursively_load_dict_contents_from_group, decode_from_hdf5, decode_bilby_json
 import pandas as pd
 from bilby.core.prior import Prior, PriorDict, DeltaFunction, ConditionalDeltaFunction
-#from bilby.core.prior.dict import from_dictionary
 import json
 
 
 def create_post_dict(file_name):
+    
+    # open data and convert the <closed hdf5 group> into readabel data types.
     with h5py.File(file_name, "r") as ff:
         data = recursively_load_dict_contents_from_group(ff, '/')
-
+    
+    # access relevant info in the result file.
     posterior_samples = pd.DataFrame(data['C01:IMRPhenomXPHM']['posterior_samples'])
     meta = data['C01:IMRPhenomXPHM']['meta_data']['meta_data']
     config = data['C01:IMRPhenomXPHM']['config_file']['config']
@@ -18,12 +20,12 @@ def create_post_dict(file_name):
     calibration = data['C01:IMRPhenomXPHM']['calibration_envelope']
     #calibration = data['C01:IMRPhenomXPHM']['priors']['calibration']
     
+    # get rid of the annoying problem where all the entries are wrapped in a list.
     for key in list(priors.keys()):
         val = priors[key][0]
         priors[key] = val
-    #del priors['chirp_mass']
-    #del priors['mass_ratio']
-    
+
+    # complete some prior names so that bilby can recognise them and recover the appropriate function.
     val = data['C01:IMRPhenomXPHM']['priors']['analytic']['chirp_mass']
     cl = val.split("(")
     if cl[0] == "UniformInComponentsChirpMass":
@@ -43,7 +45,7 @@ def create_post_dict(file_name):
         #print(string)
         
     
-    
+    # use bilby to convert the dict of prior names into PriorDict.
     priors = PriorDict(data['C01:IMRPhenomXPHM']["priors"]['analytic'])
-    print(calibration)
+
     return posterior_samples, meta, config, priors, psds, calibration
