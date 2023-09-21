@@ -10,13 +10,7 @@ event_number = int(sys.argv[1])
 
 if __name__ == '__main__':
 
-    
     events = [call_event_table()[event_number]]
-    #events = [("GW150914", "/home/shunyin.cheung/outdir_GW150914_A/final_result/GW150914_data0_1126259462-#4_analysis_H1L1_merge_result.hdf5",
-#              1126259462.391,
-#              ["H1", "L1"],
- #             4.0)]
-    
     
     waveform = "IMRPhenomXPHM" 
     
@@ -32,10 +26,10 @@ if __name__ == '__main__':
                                             priors_dict,
                                             detectors,
                                             "/home/shunyin.cheung/memory_GWTC3/Shun_test_run",
-                                            "test_likelihood_{0}_weights".format(event_name), 
+                                            "weights_{}".format(event_name), 
                                             psds = psds,
                                             calibration = None,
-                                            n_parallel=1)
+                                            n_parallel=4)
         
         
         
