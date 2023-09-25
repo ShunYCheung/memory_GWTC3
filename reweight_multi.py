@@ -1,6 +1,6 @@
 from reweight_mem_parallel import reweight_mem_parallel
 import json
-from create_post_dict import create_post_dict
+from create_post_dict import create_post_dict, extract_relevant_info
 from event_table import call_event_table
 import sys
 import pandas as pd
@@ -15,17 +15,17 @@ if __name__ == '__main__':
     waveform = "IMRPhenomXPHM" 
     
     for count, i in enumerate(events):
-        event_name, file_path, trigger_time, detectors, duration = i
+        event_name, file_path, trigger_time, detectors, duration, waveform = i
         print(f"opening {file_path}")
-        samples_dict, meta_dict, config_dict, priors_dict, psds, calibration = create_post_dict(file_path)
+        samples_dict, meta_dict, config_dict, priors_dict, psds, calibration = create_post_dict(file_path, waveform)
+        args = extract_relevant_info(meta_dict, config_dict)
         print("reweighting {}".format(event_name), "{0}/{1} events reweighted".format(count+1, len(events)))
         weights, bf = reweight_mem_parallel(event_name, 
                                             samples_dict, 
-                                            meta_dict,
-                                            config_dict,
+                                            args,
                                             priors_dict,
                                             detectors,
-                                            "/home/shunyin.cheung/memory_GWTC3/Shun_test_run",
+                                            "/home/shunyin.cheung/memory_GWTC3/run2",
                                             "weights_{}".format(event_name), 
                                             psds = psds,
                                             calibration = None,

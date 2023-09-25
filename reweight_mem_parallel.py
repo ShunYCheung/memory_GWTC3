@@ -28,7 +28,7 @@ from scipy.special import logsumexp
 from waveforms import osc_freq_XPHM, mem_freq_XPHM, mem_freq_XPHM_v2
 
 
-def reweight_mem_parallel(event_name, samples, meta, config, priors, detectors, out_folder, outfile_name_w, data_file=None, psds = None, calibration=None, n_parallel=2):
+def reweight_mem_parallel(event_name, samples, args, priors, detectors, out_folder, outfile_name_w, data_file=None, psds = None, calibration=None, n_parallel=2):
 
     """
     A function that calculates the weights to turn a posterior with a proposal distribution into 
@@ -49,29 +49,31 @@ def reweight_mem_parallel(event_name, samples, meta, config, priors, detectors, 
         duration = ifo_list.duration
         minimum_frequency = fmin
     else:
-        sampling_frequency = float(config['sampling-frequency'][0])
+        sampling_frequency = args['sampling_frequency']
         
         # a complex method way to load in max frequency because the max freq is stored in an inconvenient way.
-        str_dict = config['maximum-frequency'][0]
-        max_freq_dict = ast.literal_eval(str_dict)
-        key = list(max_freq_dict.keys())[0]
-        maximum_frequency = max_freq_dict[key]
+        maximum_frequency = args['maximum_frequency']
+        minimum_frequency = args['minimum_frequency']
+        reference_frequency = args['reference_frequency']
+        roll_off = args['roll_off']
+        duration = args['duration']
+        post_trigger_duration = args['post_trigger_duration']
+        trigger_time = args['trigger_time']
         
-        minimum_frequency = meta['f_low'][0]
-        reference_frequency = float(config['reference-frequency'][0])
-        roll_off = float(config['tukey-roll-off'][0])
-        duration = float(config['duration'][0])
-        post_trigger_duration = float(config['post-trigger-duration'][0])
-        trigger_time = float(config['trigger-time'][0])
-        
-        end_time = trigger_time + post_trigger_duration
-        start_time = end_time - duration
+        if args['trigger_time'] is not None:
+            end_time = trigger_time + post_trigger_duration
+            start_time = end_time - duration
+        elif args['start_time'] is not None:
+            start_time = args['start_time']
+            end_time = args['end_time']
+        else:
+            print("trigger time or start time not extracted properly")
 
         psd_duration = 32*duration # deprecated
         psd_start_time = start_time - psd_duration # deprecated
         psd_end_time = start_time # deprecated
         
-        ifo_list = call_data_GWOSC(logger, config, 
+        ifo_list = call_data_GWOSC(logger, args, 
                                    calibration, samples, detectors,
                                    start_time, end_time, 
                                    psd_start_time, psd_end_time, 
@@ -81,7 +83,7 @@ def reweight_mem_parallel(event_name, samples, meta, config, priors, detectors, 
 
     
     
-    waveform_name = meta['approximant'][0]
+    waveform_name = args['waveform_name']
     
     if waveform_name == "IMRPhenomXPHM":
         osc_model = osc_freq_XPHM
@@ -124,7 +126,7 @@ def reweight_mem_parallel(event_name, samples, meta, config, priors, detectors, 
 
     )
     
-    if meta['time_marginalization'][0]=="True":
+    if args['time_marginalization']=="True":
         print('time marginalisation on')
         time_marginalization = True
         jitter_time = True
@@ -132,7 +134,7 @@ def reweight_mem_parallel(event_name, samples, meta, config, priors, detectors, 
         time_marginalization = False
         jitter_time = False
     
-    if meta['distance_marginalization'][0]=="True":
+    if args['distance_marginalization']=="True":
         print('distance marginalisation on')
         distance_marginalization = True
     else:
@@ -160,8 +162,8 @@ def reweight_mem_parallel(event_name, samples, meta, config, priors, detectors, 
         calibration_marginalization = calibration_marginalization,
         jitter_time=jitter_time,
         priors = priors,
-        reference_frame = config['reference-frame'][0],
-        time_reference = meta['time_reference'][0],
+        reference_frame = args['reference_frame'],
+        time_reference = args['time_reference'],
         #calibration_lookup_table = calibration_lookup_table,
     )
     
@@ -172,7 +174,7 @@ def reweight_mem_parallel(event_name, samples, meta, config, priors, detectors, 
     # for some reason the calibration model change to Recalibrate after using it in proposal likelihood hence, defining a new one. 
     if calibration is not None:
         for i in range(len(detectors)):
-            
+            """
             ifo_list[i].calibration_model = bilby.gw.calibration.Precomputed.from_envelope_file(
                     file_paths[f"{ifo_list[i].name}"],
                     frequency_array=ifo_list[i].frequency_array[ifo_list[i].frequency_mask],
@@ -180,6 +182,7 @@ def reweight_mem_parallel(event_name, samples, meta, config, priors, detectors, 
                     label=ifo_list[i].name,
                     n_curves=1000,
                 )
+             """
             
     
     
@@ -192,8 +195,8 @@ def reweight_mem_parallel(event_name, samples, meta, config, priors, detectors, 
         calibration_marginalization = calibration_marginalization,
         jitter_time=jitter_time,
         priors = priors2,
-        reference_frame = config['reference-frame'][0],
-        time_reference = meta['time_reference'][0],
+        reference_frame = args['reference_frame'],
+        time_reference = args['time_reference'],
         #calibration_lookup_table = calibration_lookup_table,
     )
     
@@ -262,7 +265,7 @@ def reweighting(data, proposal_likelihood, target_likelihood, priors):
     
     length = data.shape[0]
     
-    for i in range(20):
+    for i in range(length):
         use_stored_likelihood=False
         
         if i % 1000 == 0:
@@ -340,7 +343,7 @@ def reweight_parallel(samples, proposal_likelihood, target_likelihood, priors, n
 
 
 
-def call_data_GWOSC(logger, config, calibration, samples, detectors, start_time, end_time, psd_start_time, psd_end_time, duration, sampling_frequency, roll_off, minimum_frequency, maximum_frequency, psds_array=None, plot=False):
+def call_data_GWOSC(logger, args, calibration, samples, detectors, start_time, end_time, psd_start_time, psd_end_time, duration, sampling_frequency, roll_off, minimum_frequency, maximum_frequency, psds_array=None, plot=False):
     
     ifo_list = bilby.gw.detector.InterferometerList([])
     
@@ -349,7 +352,7 @@ def call_data_GWOSC(logger, config, calibration, samples, detectors, start_time,
         logger.info("Downloading analysis data for ifo {}".format(det))
         ifo = bilby.gw.detector.get_empty_interferometer(det)
         
-        channel_type = 'DCS-CALIB_STRAIN_C02'
+        channel_type = args['channel_dict'][det]
         channel = f"{det}:{channel_type}"
         
         kwargs = dict(
@@ -364,7 +367,6 @@ def call_data_GWOSC(logger, config, calibration, samples, detectors, start_time,
             subok=True,
             copy=False,
         )
-        
         data = gwpy.timeseries.TimeSeries.get(channel, **kwargs).astype(
                 **type_kwargs)
         
@@ -420,7 +422,7 @@ def call_data_GWOSC(logger, config, calibration, samples, detectors, start_time,
             ifo.power_spectral_density = bilby.gw.detector.PowerSpectralDensity(
                 frequency_array=psd.frequencies.value, psd_array=psd.value
             )
-        
+        """
         if calibration is not None:
             print(f'{det}: Using pre-computed calibration model')
             model = bilby.gw.calibration.Precomputed
@@ -435,6 +437,7 @@ def call_data_GWOSC(logger, config, calibration, samples, detectors, start_time,
                 label=det,
                 n_curves=1000,
             )
+        """
 
         ifo_list.append(ifo)
 
