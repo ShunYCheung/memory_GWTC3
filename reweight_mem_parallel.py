@@ -28,7 +28,7 @@ from scipy.special import logsumexp
 from waveforms import osc_freq_XPHM, mem_freq_XPHM, mem_freq_XPHM_v2
 
 
-def reweight_mem_parallel(event_name, samples, args, priors, detectors, out_folder, outfile_name_w, data_file=None, psds = None, calibration=None, n_parallel=2):
+def reweight_mem_parallel(event_name, samples, args, priors, out_folder, outfile_name_w, data_file=None, psds = None, calibration=None, n_parallel=2):
 
     """
     A function that calculates the weights to turn a posterior with a proposal distribution into 
@@ -46,19 +46,25 @@ def reweight_mem_parallel(event_name, samples, args, priors, detectors, out_fold
             data_dump = pickle.load(f)
         ifo_list = data_dump.interferometers
         sampling_frequency = ifo_list.sampling_frequency
-        duration = ifo_list.duration
-        minimum_frequency = fmin
-    else:
-        sampling_frequency = args['sampling_frequency']
-        
-        # a complex method way to load in max frequency because the max freq is stored in an inconvenient way.
         maximum_frequency = args['maximum_frequency']
         minimum_frequency = args['minimum_frequency']
         reference_frequency = args['reference_frequency']
-        roll_off = args['roll_off']
+        roll_off = args['tukey_roll_off']
+        duration = ifo_list.duration
+        print('minimum_frequency', minimum_frequency)
+        print(type(minimum_frequency))
+        print('maximum_frequency', maximum_frequency)
+        print(type(maximum_frequency))
+    else:
+        sampling_frequency = args['sampling_frequency']
+        maximum_frequency = args['maximum_frequency']
+        minimum_frequency = args['minimum_frequency']
+        reference_frequency = args['reference_frequency']
+        roll_off = args['tukey_roll_off']
         duration = args['duration']
         post_trigger_duration = args['post_trigger_duration']
         trigger_time = args['trigger_time']
+        detectors = args['detectors']
         
         if args['trigger_time'] is not None:
             end_time = trigger_time + post_trigger_duration
@@ -83,7 +89,7 @@ def reweight_mem_parallel(event_name, samples, args, priors, detectors, out_fold
 
     
     
-    waveform_name = args['waveform_name']
+    waveform_name = args['waveform_approximant']
     
     if waveform_name == "IMRPhenomXPHM":
         osc_model = osc_freq_XPHM
@@ -139,6 +145,20 @@ def reweight_mem_parallel(event_name, samples, args, priors, detectors, out_fold
         distance_marginalization = True
     else:
         distance_marginalization = False
+    if args['time_marginalization']:
+        print('time marginalisation on')
+        time_marginalization = True
+        jitter_time = True
+    else:
+        time_marginalization = False
+        jitter_time = False
+    
+    if args['distance_marginalization']:
+        print('distance marginalisation on')
+        distance_marginalization = True
+    else:
+        distance_marginalization = False
+        
     if calibration is not None:
         print("calibration marginalisation on")
         calibration_marginalization = True
@@ -199,22 +219,6 @@ def reweight_mem_parallel(event_name, samples, args, priors, detectors, out_fold
         time_reference = args['time_reference'],
         #calibration_lookup_table = calibration_lookup_table,
     )
-    
-    # some useful values to calculate while debugging.
-    #target_likelihood.parameters.update(samples.iloc[0].to_dict())
-    #template_strain = waveform_generator_full.frequency_domain_strain(samples.iloc[0].to_dict())
-    #optimal_snr_sq = ifo_list[0].optimal_snr_squared(np.real(template_strain['plus']+template_strain['cross']))
-    #optimal_snr_sq = ifo_list[0].optimal_snr_squared(ifo_list[0].get_detector_response(template_strain, target_likelihood.parameters))
-    #snrs = target_likelihood.calculate_snrs(template_strain, ifo_list[0], return_array=False)
-    #mf_snr = ifo_list[0].matched_filter_snr(np.abs(template_strain['plus']+template_strain['cross']))
-    #print('snr array', snrs)
-    #print('optimal_snr_sq', np.sqrt(snrs.optimal_snr_squared))
-    #print('optimal_snr_sq', np.sqrt(optimal_snr_sq.real))
-    #print("GWOSC optimal snr H1", samples['H1_optimal_snr'].iloc[0])
-    #print("GWOSC matched-filter H1", samples['H1_matched_filter_snr'].iloc[0])
-    #print(priors['geocent_time'])
-    #print(priors2['geocent_time'])
-    # Define the proposal likelihood which is stored in the data file.
     
     weights_list, weights_sq_list, proposal_likelihood_list, target_likelihood_list, ln_weights_list = reweight_parallel(samples, 
                                                                                                   proposal_likelihood, 
@@ -393,7 +397,7 @@ def call_data_GWOSC(logger, args, calibration, samples, detectors, start_time, e
         
         
         # compute the psd
-        if psds_array is not None:
+        if det in psds_array.keys():
             print("Using pre-computed psd from results file")
             ifo.power_spectral_density = bilby.gw.detector.PowerSpectralDensity(
             frequency_array=psds_array[det][: ,0], psd_array=psds_array[det][:, 1]

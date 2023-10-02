@@ -18,8 +18,8 @@ def nfft(time_domain_strain, sampling_frequency):
 
 def nfft_and_time_shift(kwargs, series, shift, waveform):
     time_shift = kwargs.get('time_shift', 0.)
-    time_shift += shift* (series.time_array[1]-series.time_array[0])    # ?
-    waveform_fd = nfft(waveform, series.sampling_frequency)             # ?
+    time_shift += shift* (series.time_array[1]-series.time_array[0])   
+    waveform_fd = nfft(waveform, series.sampling_frequency)            
     for mode in waveform:
         indexes = np.where(series.frequency_array < kwargs.get('minimum_frequency', 20))
         waveform_fd[mode][indexes] = 0

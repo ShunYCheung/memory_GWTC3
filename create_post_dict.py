@@ -4,55 +4,11 @@ import pandas as pd
 from bilby.core.prior import Prior, PriorDict, DeltaFunction, ConditionalDeltaFunction
 import json
 import ast
+import numpy as np
 
-"""
-def create_post_dict(file_name):
-    
-    # open data and convert the <closed hdf5 group> into readabel data types.
-    with h5py.File(file_name, "r") as ff:
-        data = recursively_load_dict_contents_from_group(ff, '/')
-    
-    # access relevant info in the result file.
-    posterior_samples = pd.DataFrame(data['C01:IMRPhenomXPHM']['posterior_samples'])
-    meta = data['C01:IMRPhenomXPHM']['meta_data']['meta_data']
-    config = data['C01:IMRPhenomXPHM']['config_file']['config']
-    priors = data['C01:IMRPhenomXPHM']['priors']['analytic']
-    psds = data['C01:IMRPhenomXPHM']['psds']
-    calibration = data['C01:IMRPhenomXPHM']['calibration_envelope']
-    
-    # get rid of the annoying problem where all the prior entries are wrapped in a list.
-    for key in list(priors.keys()):
-        val = priors[key][0]
-        priors[key] = val
-
-    # complete some prior names so that bilby can recognise them and recover the appropriate function.
-    val = data['C01:IMRPhenomXPHM']['priors']['analytic']['chirp_mass']
-    cl = val.split("(")
-    if cl[0] == "UniformInComponentsChirpMass":
-        complete_cl = "bilby.gw.prior.UniformInComponentsChirpMass("
-        cl[0] = complete_cl
-        string = ''.join(cl)
-        data['C01:IMRPhenomXPHM']['priors']['analytic']['chirp_mass']=string
-        #print(string)
-    
-    val = data['C01:IMRPhenomXPHM']['priors']['analytic']['mass_ratio']
-    cl = val.split("(")
-    if cl[0] == "UniformInComponentsMassRatio":
-        complete_cl = "bilby.gw.prior.UniformInComponentsMassRatio("
-        cl[0] = complete_cl
-        string = ''.join(cl)
-        data['C01:IMRPhenomXPHM']['priors']['analytic']['mass_ratio']=string
-        #print(string)
-        
-    
-    # use bilby to convert the dict of prior names into PriorDict.
-    priors = PriorDict(data['C01:IMRPhenomXPHM']["priors"]['analytic'])
-
-    return posterior_samples, meta, config, priors, psds, calibration
-"""
 
 def create_post_dict(file_name, waveform):
-  
+    
     # open data and convert the <closed hdf5 group> into readabel data types.
     with h5py.File(file_name, "r") as ff:
         data = recursively_load_dict_contents_from_group(ff, '/')
@@ -66,7 +22,6 @@ def create_post_dict(file_name, waveform):
     else:
         config = data[waveform]['config_file']
         print('No analytic priors found. Create time and distance priors to marginalize over.')
-        pri
     psds = data[waveform]['psds']
     calibration = data[waveform]['calibration_envelope']
     
@@ -87,6 +42,14 @@ def create_post_dict(file_name, waveform):
             data[waveform]['priors']['analytic']['chirp_mass']=string
             #print(string)
 
+        val = data[waveform]['priors']['analytic']['mass_ratio']
+        cl = val.split("(")
+        if cl[0] == "UniformInComponentsMassRatio":
+            complete_cl = "bilby.gw.prior.UniformInComponentsMassRatio("
+            cl[0] = complete_cl
+            string = ''.join(cl)
+            data[waveform]['priors']['analytic']['mass_ratio']=string
+            #print(string)
         val = data[waveform]['priors']['analytic']['mass_ratio']
         cl = val.split("(")
         if cl[0] == "UniformInComponentsMassRatio":
@@ -160,7 +123,7 @@ def extract_relevant_info(meta, config):
         print('unable to extract reference frequency')
     
     # extract waveform name 
-    waveform_name = meta['approximant'][0]
+    waveform_approximant = meta['approximant'][0]
     
     # extract triggers
     if 'trigger-time' in config:
@@ -176,14 +139,15 @@ def extract_relevant_info(meta, config):
     else:
         print('unable to extract trigger_time/start_time')
     
-        
+    # extract detectors
+    detectors = ast.literal_eval(config['detectors'][0])
     
     # extract roll off
     if 'tukey-roll-off' in config:
-        roll_off = float(config['tukey-roll-off'][0])
+        tukey_roll_off = float(config['tukey-roll-off'][0])
     else:
         print('Unable to extract tukey roll off settigns. Use default roll off of 0.4.')
-        roll_off = 0.4
+        tukey_roll_off = 0.4
     
     # extract marginalisation settings
     if 'distance-marginalization' in config:
@@ -241,18 +205,20 @@ def extract_relevant_info(meta, config):
         print('channel_dict', channel_dict)
     else:
         print('Unable to extract channel dict.')
+    
     # combine all into a dict
     args = dict(duration=duration,
                sampling_frequency=sampling_frequency,
                maximum_frequency=maximum_frequency,
                minimum_frequency=minimum_frequency,
                reference_frequency=reference_frequency,
-               waveform_name=waveform_name,
+               waveform_approximant=waveform_approximant,
                trigger_time = trigger_time,
+                detectors=detectors,
                 start_time = segment_start,
                 end_time=end_time,
             post_trigger_duration=post_trigger_duration,
-               roll_off = roll_off,
+               tukey_roll_off = tukey_roll_off,
                distance_marginalization=distance_marginalization,
                time_marginalization=time_marginalization,
                reference_frame=reference_frame,
@@ -260,3 +226,24 @@ def extract_relevant_info(meta, config):
                jitter_time=jitter_time,
                channel_dict=channel_dict,)
     return args
+
+
+def process_bilby_result(meta):
+    
+    if '{' in meta['minimum_frequency']:
+        min_dict= ast.literal_eval(meta['minimum_frequency'])
+        minimum_frequency = np.min(
+                    [xx for xx in min_dict.values()]
+                ).item()
+
+        meta['minimum_frequency'] = minimum_frequency
+    
+    if '{' in meta['maximum_frequency']:
+        max_dict = ast.literal_eval(meta['maximum_frequency'])
+        maximum_frequency = np.max(
+                    [xx for xx in max_dict.values()]
+                ).item()
+
+        meta['maximum_frequency'] = maximum_frequency
+        
+    return meta
