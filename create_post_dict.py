@@ -61,11 +61,8 @@ def create_post_dict(file_name, waveform):
         # use bilby to convert the dict of prior names into PriorDict.
         priors = PriorDict(data[waveform]["priors"]['analytic'])
     else:
-        print('No analytic priors found. Create time and distance priors to marginalize over.')
-        priors = dict()
-        priors['luminosity_distance'] = "PowerLaw(alpha=2, minimum=10, maximum=10000, name='luminosity_distance', latex_label='$d_L$', unit='Mpc', boundary=None)"
-        priors['geocent_time'] = "Uniform(minimum={0}, maximum={1}, name='geocent_time', latex_label='$t_c$', unit='$s$', boundary=None)".format(end_time-2-0.1, end_time-2+0.1)
-        priors = PriorDict(priors)
+        print('Error: No analytic priors found!')
+        exit()
 
     return posterior_samples, meta, config, priors, psds, calibration
 
@@ -74,6 +71,7 @@ def extract_relevant_info(meta, config):
     """
     I need a function to extract info as everybody stores the info in their result files differently.
     """
+
     # extract sampling frequency
     if 'sampling_frequency' in meta.keys():
         sampling_frequency = meta['sampling_frequency'][0]
@@ -190,11 +188,10 @@ def extract_relevant_info(meta, config):
         string = config['channel-dict'][0]
 
         res = []
-
         if string[0:2] == '{ ':
             string = string[2:]
         if string[-1] == '}':
-            string = string[:-2]
+            string = string[:-1]
         for sub in string.split(','):
             for i in range(len(sub)):
                 if sub[i] == ' ':
@@ -245,5 +242,7 @@ def process_bilby_result(meta):
                 ).item()
 
         meta['maximum_frequency'] = maximum_frequency
-        
+    
+    meta['minimum_frequency'] = float(meta['minimum_frequency'])
+    meta['maximum_frequency'] = float(meta['maximum_frequency'])
     return meta

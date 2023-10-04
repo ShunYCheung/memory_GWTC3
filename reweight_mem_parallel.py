@@ -5,27 +5,20 @@ Also calculates the Bayes factor between no memory and memory hypothesis.
 Author: Shun Yin Cheung
 """
 
-import pandas as pd
 import numpy as np
 import bilby
 import lal
-import json
 import copy
 import pickle
 
-import ast
-
 import gwpy
 from gwpy.timeseries import TimeSeries
-from gwosc.datasets import event_gps
 import matplotlib.pyplot as plt
 
 import multiprocessing as mp
-from scipy.signal import get_window
-from scipy.signal.windows import tukey
 from scipy.special import logsumexp
 
-from waveforms import osc_freq_XPHM, mem_freq_XPHM, mem_freq_XPHM_v2
+from waveforms import mem_freq_XPHM_v2
 
 
 def reweight_mem_parallel(event_name, samples, args, priors, out_folder, outfile_name_w, data_file=None, psds = None, calibration=None, n_parallel=2):
@@ -38,7 +31,6 @@ def reweight_mem_parallel(event_name, samples, args, priors, out_folder, outfile
 
     logger = bilby.core.utils.logger
 
-    
     # adds in detectors and the specs for the detectors. 
     if data_file is not None:
         print("opening {}".format(data_file))
@@ -51,10 +43,6 @@ def reweight_mem_parallel(event_name, samples, args, priors, out_folder, outfile
         reference_frequency = args['reference_frequency']
         roll_off = args['tukey_roll_off']
         duration = ifo_list.duration
-        print('minimum_frequency', minimum_frequency)
-        print(type(minimum_frequency))
-        print('maximum_frequency', maximum_frequency)
-        print(type(maximum_frequency))
     else:
         sampling_frequency = args['sampling_frequency']
         maximum_frequency = args['maximum_frequency']
@@ -64,7 +52,10 @@ def reweight_mem_parallel(event_name, samples, args, priors, out_folder, outfile
         duration = args['duration']
         post_trigger_duration = args['post_trigger_duration']
         trigger_time = args['trigger_time']
+        
         detectors = args['detectors']
+        if 'V1' in detectors:
+            detectors.remove('V1')
         
         if args['trigger_time'] is not None:
             end_time = trigger_time + post_trigger_duration
@@ -73,7 +64,8 @@ def reweight_mem_parallel(event_name, samples, args, priors, out_folder, outfile
             start_time = args['start_time']
             end_time = args['end_time']
         else:
-            print("trigger time or start time not extracted properly")
+            print("Error: Trigger time or start time not extracted properly.")
+            exit()
 
         psd_duration = 32*duration # deprecated
         psd_start_time = start_time - psd_duration # deprecated
@@ -86,18 +78,8 @@ def reweight_mem_parallel(event_name, samples, args, priors, out_folder, outfile
                                    duration, sampling_frequency, 
                                    roll_off, minimum_frequency, maximum_frequency,
                                    psds_array=psds)
-
-    
     
     waveform_name = args['waveform_approximant']
-    
-    if waveform_name == "IMRPhenomXPHM":
-        osc_model = osc_freq_XPHM
-        mem_model = mem_freq_XPHM_v2
-
-    elif waveform_name == "IMRPhenomXHM":
-        osc_model = osc_freq_XHM
-        mem_model = mem_freq_XHM
         
     # test if bilby oscillatory waveform = gwmemory oscillatory waveform.
     waveform_generator_osc = bilby.gw.waveform_generator.WaveformGenerator(
@@ -112,15 +94,13 @@ def reweight_mem_parallel(event_name, samples, args, priors, out_folder, outfile
                                 reference_frequency=reference_frequency,
                                 waveform_approximant=waveform_name,
                                )
-
     )
-    
     
     # define oscillatory + memory model using gwmemory.
     waveform_generator_full = bilby.gw.waveform_generator.WaveformGenerator(
         duration=duration,
         sampling_frequency=sampling_frequency,
-        frequency_domain_source_model= mem_model,
+        frequency_domain_source_model= mem_freq_XPHM_v2,
         parameter_conversion = bilby.gw.conversion.convert_to_lal_binary_black_hole_parameters,
         waveform_arguments=dict(duration=duration,
                                 roll_off=roll_off,
@@ -129,7 +109,6 @@ def reweight_mem_parallel(event_name, samples, args, priors, out_folder, outfile
                                 sampling_frequency=sampling_frequency,
                                 reference_frequency=reference_frequency,
                                 bilby_generator = waveform_generator_osc)
-
     )
     
     if args['time_marginalization']=="True":
@@ -158,16 +137,6 @@ def reweight_mem_parallel(event_name, samples, args, priors, out_folder, outfile
         distance_marginalization = True
     else:
         distance_marginalization = False
-        
-    if calibration is not None:
-        print("calibration marginalisation on")
-        calibration_marginalization = True
-        calibration_lookup_table = calibration
-        #calibration_lookup_table = {"H1":"/home/daniel.williams/events/O3/event_repos/GW150914/C01_offline/calibration/H1.dat",
-        #                            "L1":"/home/daniel.williams/events/O3/event_repos/GW150914/C01_offline/calibration/L1.dat", }
-
-    else:
-        calibration_marginalization = False
     
     
     priors2 = copy.copy(priors) # for some reason the priors change after putting it into the likelihood object. 
@@ -179,32 +148,11 @@ def reweight_mem_parallel(event_name, samples, args, priors, out_folder, outfile
         time_marginalization = time_marginalization,
         distance_marginalization = distance_marginalization,
         distance_marginalization_lookup_table = "'TD.npz'.npz",
-        calibration_marginalization = calibration_marginalization,
         jitter_time=jitter_time,
         priors = priors,
         reference_frame = args['reference_frame'],
         time_reference = args['time_reference'],
-        #calibration_lookup_table = calibration_lookup_table,
     )
-    
-    
-    file_paths={"H1":"/home/daniel.williams/events/O3/event_repos/GW150914/C01_offline/calibration/H1.dat",
-                            "L1":"/home/daniel.williams/events/O3/event_repos/GW150914/C01_offline/calibration/L1.dat",}
-    
-    # for some reason the calibration model change to Recalibrate after using it in proposal likelihood hence, defining a new one. 
-    if calibration is not None:
-        for i in range(len(detectors)):
-            """
-            ifo_list[i].calibration_model = bilby.gw.calibration.Precomputed.from_envelope_file(
-                    file_paths[f"{ifo_list[i].name}"],
-                    frequency_array=ifo_list[i].frequency_array[ifo_list[i].frequency_mask],
-                    n_nodes=int(config['spline-calibration-nodes'][0]),
-                    label=ifo_list[i].name,
-                    n_curves=1000,
-                )
-             """
-            
-    
     
     target_likelihood = bilby.gw.likelihood.GravitationalWaveTransient(
         ifo_list,
@@ -212,12 +160,10 @@ def reweight_mem_parallel(event_name, samples, args, priors, out_folder, outfile
         time_marginalization = time_marginalization,
         distance_marginalization = distance_marginalization,
         distance_marginalization_lookup_table = "'TD.npz'.npz",
-        calibration_marginalization = calibration_marginalization,
         jitter_time=jitter_time,
         priors = priors2,
         reference_frame = args['reference_frame'],
         time_reference = args['time_reference'],
-        #calibration_lookup_table = calibration_lookup_table,
     )
     
     weights_list, weights_sq_list, proposal_likelihood_list, target_likelihood_list, ln_weights_list = reweight_parallel(samples, 
@@ -254,8 +200,7 @@ def reweight_mem_parallel(event_name, samples, args, priors, out_folder, outfile
 
     return weights_list, bf
     
-
-    
+ 
 def reweighting(data, proposal_likelihood, target_likelihood, priors):
     logger = bilby.core.utils.logger
     ln_weights_list=[]
@@ -278,7 +223,7 @@ def reweighting(data, proposal_likelihood, target_likelihood, priors):
         
         if use_stored_likelihood:
             proposal_likelihood_values = data['log_likelihood'].iloc[i]
-            log_likelihood_GWOSC = proposal_likelihood_values  + ln_noise_evidence
+            log_likelihood_GWOSC = proposal_likelihood_values
             #print("GWOSC values")
             #print("log likelihood ratio from GWOSC = ", proposal_likelihood_values)
             #print("log likelihood from GWOSC = ", log_likelihood_GWOSC)
@@ -316,7 +261,6 @@ def reweighting(data, proposal_likelihood, target_likelihood, priors):
         ln_weights_list.append(ln_weights)
 
     return weights_list, weights_sq_list, proposal_likelihood_list, target_likelihood_list, ln_weights_list
-
 
 
 def reweight_parallel(samples, proposal_likelihood, target_likelihood, priors, n_parallel=2):
@@ -374,8 +318,6 @@ def call_data_GWOSC(logger, args, calibration, samples, detectors, start_time, e
         data = gwpy.timeseries.TimeSeries.get(channel, **kwargs).astype(
                 **type_kwargs)
         
-        
-        
         # Resampling timeseries to sampling_frequency using lal.
         lal_timeseries = data.to_lal()
         lal.ResampleREAL8TimeSeries(
@@ -395,7 +337,6 @@ def call_data_GWOSC(logger, args, calibration, samples, detectors, start_time, e
         # set data as the strain data
         ifo.strain_data.set_from_gwpy_timeseries(data)
         
-        
         # compute the psd
         if det in psds_array.keys():
             print("Using pre-computed psd from results file")
@@ -403,45 +344,8 @@ def call_data_GWOSC(logger, args, calibration, samples, detectors, start_time, e
             frequency_array=psds_array[det][: ,0], psd_array=psds_array[det][:, 1]
             )
         else:
-            logger.info("Downloading psd data for ifo {}".format(det))                  
-            psd_data = TimeSeries.fetch_open_data(det, psd_start_time, psd_end_time, sample_rate=16384)
-
-            # again, we resample the psd_data using lal.
-            psd_lal_timeseries = psd_data.to_lal()
-            lal.ResampleREAL8TimeSeries(
-                psd_lal_timeseries, float(1/sampling_frequency)
-            )
-            psd_data = TimeSeries(
-                psd_lal_timeseries.data.data,
-                epoch=psd_lal_timeseries.epoch,
-                dt=psd_lal_timeseries.deltaT
-            )
-
-            psd_alpha = 2 * roll_off / duration  
-            
-            psd = psd_data.psd(        
-                fftlength=duration, overlap=0.5*duration, window=("tukey", psd_alpha), method="median"
-            )
-
-            ifo.power_spectral_density = bilby.gw.detector.PowerSpectralDensity(
-                frequency_array=psd.frequencies.value, psd_array=psd.value
-            )
-        """
-        if calibration is not None:
-            print(f'{det}: Using pre-computed calibration model')
-            model = bilby.gw.calibration.Precomputed
-            det = ifo.name
-            file_paths={"H1":"/home/daniel.williams/events/O3/event_repos/GW150914/C01_offline/calibration/H1.dat",
-                        "L1":"/home/daniel.williams/events/O3/event_repos/GW150914/C01_offline/calibration/L1.dat", }
-            
-            ifo.calibration_model = model.from_envelope_file(
-                file_paths[det],
-                frequency_array=ifo.frequency_array[ifo.frequency_mask],
-                n_nodes=int(config['spline-calibration-nodes'][0]),
-                label=det,
-                n_curves=1000,
-            )
-        """
+            print('Error: PSD is missing!')
+            exit()
 
         ifo_list.append(ifo)
 

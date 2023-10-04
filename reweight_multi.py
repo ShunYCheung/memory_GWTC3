@@ -30,6 +30,7 @@ if __name__ == '__main__':
             psds=None
         else:
             print('Cannot recognise file type.')
+            exit()
             
         print("reweighting {}".format(event_name), "{0}/{1} events reweighted".format(count+1, len(events)))
         weights, bf = reweight_mem_parallel(event_name, 
