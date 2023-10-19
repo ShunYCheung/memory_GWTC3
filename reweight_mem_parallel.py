@@ -1,20 +1,12 @@
-"""
-Code for a function "reweight" to calculate the weights to turn a proposal posterior into a target posterior.
-Also calculates the Bayes factor between no memory and memory hypothesis. 
-
-Author: Shun Yin Cheung
-"""
 
 import numpy as np
 import bilby
 import lal
 import copy
 import pickle
-
 import gwpy
 from gwpy.timeseries import TimeSeries
 import matplotlib.pyplot as plt
-
 import multiprocessing as mp
 from scipy.special import logsumexp
 
@@ -66,18 +58,13 @@ def reweight_mem_parallel(event_name, samples, args, priors, out_folder, outfile
         else:
             print("Error: Trigger time or start time not extracted properly.")
             exit()
-
-        psd_duration = 32*duration # deprecated
-        psd_start_time = start_time - psd_duration # deprecated
-        psd_end_time = start_time # deprecated
         
         ifo_list = call_data_GWOSC(logger, args, 
-                                   calibration, samples, detectors,
-                                   start_time, end_time, 
-                                   psd_start_time, psd_end_time, 
-                                   duration, sampling_frequency, 
-                                   roll_off, minimum_frequency, maximum_frequency,
-                                   psds_array=psds)
+                                   calibration, samples, 
+                                   detectors, start_time, 
+                                   end_time, sampling_frequency, 
+                                   roll_off, minimum_frequency, 
+                                   maximum_frequency, psds_array=psds)
     
     waveform_name = args['waveform_approximant']
         
@@ -166,26 +153,21 @@ def reweight_mem_parallel(event_name, samples, args, priors, out_folder, outfile
         time_reference = args['time_reference'],
     )
     
-    weights_list, weights_sq_list, proposal_likelihood_list, target_likelihood_list, ln_weights_list = reweight_parallel(samples, 
-                                                                                                  proposal_likelihood, 
-                                                                                                  target_likelihood,
-                                                                                                priors2,
-                                                                                                  n_parallel)
+    weights_list, weights_sq_list, proposal_likelihood_list, target_likelihood_list, ln_weights_list \
+        = reweight_parallel(samples, proposal_likelihood, target_likelihood, priors2, n_parallel)
+    
+    # Calculate efficiency and Bayes factors.
     print('Reweighting results')
-    # Calulate the effective number of samples.
+
     neff = (np.sum(weights_list))**2 /np.sum(weights_sq_list)
-    print("effective no. of samples = {}".format(neff))
-
     efficiency = neff/len(weights_list)
-    print("{} percent efficiency".format(efficiency*100))
-
-    # Calculate the Bayes factor
     bf = 1/(len(ln_weights_list)) * np.exp(logsumexp(ln_weights_list))
-    print("Bayes factor = {}".format(bf))
-    
     lnbf = logsumexp(ln_weights_list) - np.log(len(ln_weights_list))
-    print("Log Bayes factor = {}".format(lnbf))
     
+    print("effective no. of samples = {}".format(neff))
+    print("{} percent efficiency".format(efficiency*100))
+    print("Bayes factor = {}".format(bf))
+    print("Log Bayes factor = {}".format(lnbf))
     
     # save weights, proposal and target likelihoods into a .txt file
     np.savetxt(out_folder+"/{0}_{1}.csv".format(outfile_name_w, waveform_name), 
@@ -268,8 +250,7 @@ def reweight_parallel(samples, proposal_likelihood, target_likelihood, priors, n
     p = mp.Pool(n_parallel)
 
     data=samples
-    new_data = copy.deepcopy(data)
-  
+    new_data = copy.deepcopy(data)  
     posteriors = np.array_split(new_data, n_parallel)
 
     new_results = []
@@ -278,7 +259,6 @@ def reweight_parallel(samples, proposal_likelihood, target_likelihood, priors, n
         new_results.append(res)
  
     iterable = [(new_result, proposal_likelihood, target_likelihood, priors) for new_result in new_results]
-
     res = p.starmap(reweighting, iterable)
     
     p.close()
@@ -290,8 +270,7 @@ def reweight_parallel(samples, proposal_likelihood, target_likelihood, priors, n
     return weights_list_comb, weights_sq_list_comb, proposal_comb, target_comb, ln_weights_comb
 
 
-
-def call_data_GWOSC(logger, args, calibration, samples, detectors, start_time, end_time, psd_start_time, psd_end_time, duration, sampling_frequency, roll_off, minimum_frequency, maximum_frequency, psds_array=None, plot=False):
+def call_data_GWOSC(logger, args, calibration, samples, detectors, start_time, end_time, sampling_frequency, roll_off, minimum_frequency, maximum_frequency, psds_array=None, plot=False):
     
     ifo_list = bilby.gw.detector.InterferometerList([])
     
@@ -350,6 +329,4 @@ def call_data_GWOSC(logger, args, calibration, samples, detectors, start_time, e
         ifo_list.append(ifo)
 
     return ifo_list
-
-##############################################
 

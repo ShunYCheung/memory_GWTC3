@@ -3,6 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import math
 
+plt.rcParams['text.usetex'] = True
+plt.rc('font', family='serif')
 
 path_list = glob.glob("/home/shunyin.cheung/memory_GWTC3/run2/*_IMRPhenomXPHM.csv")
 s_path_list = sorted(path_list)
@@ -53,10 +55,10 @@ y = np.cumsum(clean_lnbf)
 
 plt.figure()
 plt.plot(x, y)
-plt.xlabel('number of GW events', fontsize=18)
-plt.ylabel('ln BF', fontsize=18)
+plt.xlabel('number of events', fontsize=18)
+plt.ylabel(r'$ \textrm{cumulative} \ln \textrm{BF}_{\textrm{mem}}$', fontsize=18)
 plt.xticks(fontsize=14)
 plt.yticks(fontsize=14)
 plt.tight_layout()
 
-plt.savefig('cumulative_lnBF_GWTC3.pdf')
+plt.savefig('cumulative_lnBF_GWTC3.png')

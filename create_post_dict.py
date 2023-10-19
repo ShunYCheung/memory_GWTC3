@@ -21,12 +21,13 @@ def create_post_dict(file_name, waveform):
         config = data[waveform]['config_file']['config']
     else:
         config = data[waveform]['config_file']
-        print('No analytic priors found. Create time and distance priors to marginalize over.')
+    
     psds = data[waveform]['psds']
     calibration = data[waveform]['calibration_envelope']
     
     if 'analytic' in data[waveform]['priors'].keys():
         priors = data[waveform]['priors']['analytic']
+        
         # get rid of the annoying problem where all the prior entries are wrapped in a list.
         for key in list(priors.keys()):
             val = priors[key][0]
@@ -73,23 +74,13 @@ def extract_relevant_info(meta, config):
     """
 
     # extract sampling frequency
-    if 'sampling_frequency' in meta.keys():
-        sampling_frequency = meta['sampling_frequency'][0]
-    elif 'srate' in meta.keys():
-        sampling_frequency = meta['srate'][0]
-    elif 'sample_rate' in meta.keys():
-        sampling_frequency = meta['sample_rate'][0]
-    elif 'sampling-frequency' in config.keys():
+    if 'sampling-frequency' in config.keys():
         sampling_frequency = float(config['sampling-frequency'][0])
     else:
         print("unable to extract the sampling_frequency")
     
     # extract duration
-    if 'duration' in meta.keys():
-        duration = meta['duration'][0]
-    elif 'segment_length' in meta.keys():
-        duration = meta['segment_length'][0]
-    elif 'duration' in config.keys():
+    if 'duration' in config.keys():
         duration = float(config['duration'][0])
     else:
         print("unable to extract duration")
