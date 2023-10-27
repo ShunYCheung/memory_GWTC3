@@ -28,22 +28,8 @@ lnbf_list = np.array(lnbf_list)
 result = np.stack((labels, lnbf_list), axis=1)
 #print(result)
 
-Moritz_data_xhm = np.genfromtxt('Moritz_log_bfs_xhm.txt')
-Moritz_data_prec = np.genfromtxt('Moritz_log_bfs_prec.txt')
-fig, ax = plt.subplots(1, 1, figsize=(12, 4))
-ax.plot(labels[0:10], lnbf_list[0:10], marker = 'o', linestyle='None', label='Shun')
-ax.plot(labels[0:10], Moritz_data_xhm[0:10], marker = 'o', linestyle='None', label='Moritz xhm')
-ax.plot(labels[0:10], Moritz_data_prec[0:10], marker = 'o', linestyle='None', label='Moritz prec')
-
-plt.xticks(rotation=50, ha='right')
-plt.ylabel(r'$\ln BF_{mem}$')
-plt.legend()
-plt.grid()
-plt.tight_layout()
-plt.savefig("compare_result_to_Moritz.png")
-
 print(np.nansum(lnbf_list))
-np.savetxt("run_5_lnBF_GWTC3.csv", result,fmt="%s", delimiter=',')
+np.savetxt("results/run_5_lnBF_GWTC3.csv", result,fmt="%s", delimiter=',')
 
 clean_lnbf = [x for x in lnbf_list if (math.isnan(x) == False)]
 clean_lnbf = [x for x in clean_lnbf if (x < 100)]
@@ -61,4 +47,32 @@ plt.xticks(fontsize=14)
 plt.yticks(fontsize=14)
 plt.tight_layout()
 
-plt.savefig('cumulative_lnBF_GWTC3.png')
+plt.savefig('results/cumulative_lnBF_GWTC3.png')
+
+new_labels = np.delete(labels, [10, 16, 33, 39, 45, 47, 48])
+new_lnbf = np.delete(lnbf_list, [10, 16, 33, 39, 45, 47, 48])
+
+new_labels[21], new_labels[22] = new_labels[22], new_labels[21]
+new_lnbf[21], new_lnbf[22] = new_lnbf[22], new_lnbf[21]
+
+Moritz_data_xhm = np.genfromtxt('Moritz_log_bfs_xhm.txt')
+Moritz_data_prec = np.genfromtxt('Moritz_log_bfs_prec.txt')
+
+Moritz_data_xhm = np.array(Moritz_data_xhm)
+Moritz_data_prec = np.array(Moritz_data_prec)
+
+Moritz_data_xhm = np.delete(Moritz_data_xhm, [15])
+Moritz_data_prec = np.delete(Moritz_data_prec, [15])
+
+fig, ax = plt.subplots(1, 1, figsize=(12, 4))
+ax.plot(new_labels[0:44], new_lnbf[0:44], marker = 'o', linestyle='None', label='IMRPhenomXPHM')
+ax.plot(new_labels[0:44], Moritz_data_xhm, marker = '+', linestyle='None', label='IMRPhenomXHM')
+ax.plot(new_labels[0:44], Moritz_data_prec, marker = 'x', linestyle='None', label='NRSur7dq4')
+
+plt.xticks(rotation=50, ha='right')
+plt.ylabel(r'$\ln BF_{mem}$')
+plt.legend()
+plt.grid()
+plt.tight_layout()
+plt.savefig("results/compare_result_to_Moritz.png")
+plt.savefig("results/compare_result_to_Moritz.pdf")
